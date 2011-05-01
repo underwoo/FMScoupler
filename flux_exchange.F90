@@ -41,7 +41,7 @@ public :: flux_exchange_init,   &
 
 !-----------------------------------------------------------------------
 character(len=128) :: version = '$Id: flux_exchange.F90,v 1.1.2.1 2009/11/17 19:40:43 pjp Exp $'
-character(len=128) :: tag = '$Name: riga_201012 $'
+character(len=128) :: tag = '$Name: riga_201104 $'
 
 !-----------------------------------------------------------------------
 !-------- namelist (for diagnostics) ------

@@ -66,7 +66,7 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128) :: version = '$Id: coupler_main.F90,v 1.1.2.1.2.1 2010/03/09 20:20:28 z1l Exp $'
-character(len=128) :: tag = '$Name: riga_201012 $'
+character(len=128) :: tag = '$Name: riga_201104 $'
 
 !-----------------------------------------------------------------------
 !---- model defined-types ----
