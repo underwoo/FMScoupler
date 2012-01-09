@@ -40,8 +40,8 @@ public :: flux_exchange_init,   &
           flux_exchange_end
 
 !-----------------------------------------------------------------------
-character(len=128) :: version = '$Id: flux_exchange.F90,v 1.1.2.1 2009/11/17 19:40:43 pjp Exp $'
-character(len=128) :: tag = '$Name: riga_201104 $'
+character(len=128) :: version = '$Id: flux_exchange.F90,v 19.0 2012/01/06 22:06:49 fms Exp $'
+character(len=128) :: tag = '$Name: siena $'
 
 !-----------------------------------------------------------------------
 !-------- namelist (for diagnostics) ------
@@ -730,6 +730,7 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    allocate( land_ice_atmos_boundary%b_star(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%q_star(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%rough_mom(is:ie,js:je) )
+   allocate( land_ice_atmos_boundary%frac_open_sea(is:ie,js:je) )
 
 !------ initialize boundary values ------
 
@@ -750,6 +751,7 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    land_ice_atmos_boundary%b_star=0.0
    land_ice_atmos_boundary%q_star=0.0
    land_ice_atmos_boundary%rough_mom=0.01
+   land_ice_atmos_boundary%frac_open_sea=0.0
    
 
 !-----------------------------------------------------------------------
