@@ -41,7 +41,7 @@ public :: flux_exchange_init,   &
 
 !-----------------------------------------------------------------------
 character(len=128) :: version = '$Id: flux_exchange.F90,v 19.0 2012/01/06 22:06:49 fms Exp $'
-character(len=128) :: tag = '$Name: siena_201204 $'
+character(len=128) :: tag = '$Name: siena_201207 $'
 
 !-----------------------------------------------------------------------
 !-------- namelist (for diagnostics) ------
