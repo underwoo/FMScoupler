@@ -66,7 +66,7 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128) :: version = '$Id: coupler_main.F90,v 19.0 2012/01/06 22:06:48 fms Exp $'
-character(len=128) :: tag = '$Name: siena_201309 $'
+character(len=128) :: tag = '$Name: tikal $'
 
 !-----------------------------------------------------------------------
 !---- model defined-types ----
