@@ -40,9 +40,10 @@ use       fms_mod, only: open_namelist_file, file_exist, check_nml_error,  &
                          write_version_number, uppercase
 use    fms_io_mod, only: fms_io_exit
 
-use mpp_mod, only: mpp_init, mpp_pe, mpp_root_pe, &
+use mpp_mod, only: mpp_init, mpp_npes, mpp_pe, mpp_root_pe, &
                    stdlog, mpp_error, NOTE, FATAL, WARNING
-use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
+use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
+                   mpp_get_current_pelist
 
 use mpp_io_mod, only: mpp_open, mpp_close, &
                       MPP_NATIVE, MPP_RDONLY, MPP_DELETE
@@ -65,8 +66,8 @@ implicit none
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: coupler_main.F90,v 19.0 2012/01/06 22:06:48 fms Exp $'
-character(len=128) :: tag = '$Name: tikal_201403 $'
+character(len=128) :: version = '$Id: coupler_main.F90,v 19.0.4.1 2014/06/18 03:42:32 Rusty.Benson Exp $'
+character(len=128) :: tag = '$Name: tikal_201409 $'
 
 !-----------------------------------------------------------------------
 !---- model defined-types ----
@@ -387,6 +388,9 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
          call error_mesg ('program coupler',   &
          'atmos time step is not a multiple of the ocean time step', FATAL)
 
+! ---- create the base pelist
+    allocate(Atm%pelist(mpp_npes()))
+    call mpp_get_current_pelist(Atm%pelist)
 
 !------ initialize component models ------
 
