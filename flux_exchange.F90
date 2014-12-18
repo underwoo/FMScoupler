@@ -40,8 +40,8 @@ public :: flux_exchange_init,   &
           flux_exchange_end
 
 !-----------------------------------------------------------------------
-character(len=128) :: version = '$Id: flux_exchange.F90,v 19.0 2012/01/06 22:06:49 fms Exp $'
-character(len=128) :: tag = '$Name: tikal_201409 $'
+character(len=128) :: version = '$Id: flux_exchange.F90,v 21.0 2014/12/15 22:17:00 fms Exp $'
+character(len=128) :: tag = '$Name: ulm $'
 
 !-----------------------------------------------------------------------
 !-------- namelist (for diagnostics) ------
@@ -714,6 +714,8 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
 !------ allocate land-ice-atmos boundary
 
    allocate( land_ice_atmos_boundary%t(is:ie,js:je) )
+   allocate( land_ice_atmos_boundary%t_ref(is:ie,js:je) )
+   allocate( land_ice_atmos_boundary%q_ref(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%albedo(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%albedo_vis_dir(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%albedo_nir_dir(is:ie,js:je) )

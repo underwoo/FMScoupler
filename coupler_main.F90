@@ -16,8 +16,11 @@ use time_manager_mod, only: time_type, set_calendar_type, set_time,  &
                             NOLEAP, NO_CALENDAR
 
 use  atmos_model_mod, only: atmos_model_init, atmos_model_end, &
+                            update_atmos_model_dynamics,       &
+                            update_atmos_model_radiation,      &
                             update_atmos_model_down,           &
                             update_atmos_model_up,             &
+                            update_atmos_model_state,          &
                             atmos_data_type,                   &
                             land_ice_atmos_boundary_type
 
@@ -40,10 +43,9 @@ use       fms_mod, only: open_namelist_file, file_exist, check_nml_error,  &
                          write_version_number, uppercase
 use    fms_io_mod, only: fms_io_exit
 
-use mpp_mod, only: mpp_init, mpp_npes, mpp_pe, mpp_root_pe, &
+use mpp_mod, only: mpp_init, mpp_pe, mpp_root_pe, mpp_npes, mpp_get_current_pelist, &
                    stdlog, mpp_error, NOTE, FATAL, WARNING
-use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
-                   mpp_get_current_pelist
+use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
 
 use mpp_io_mod, only: mpp_open, mpp_close, &
                       MPP_NATIVE, MPP_RDONLY, MPP_DELETE
@@ -66,8 +68,8 @@ implicit none
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: coupler_main.F90,v 19.0.4.1 2014/06/18 03:42:32 Rusty.Benson Exp $'
-character(len=128) :: tag = '$Name: tikal_201409 $'
+character(len=128) :: version = '$Id: coupler_main.F90,v 21.0 2014/12/15 22:16:58 fms Exp $'
+character(len=128) :: tag = '$Name: ulm $'
 
 !-----------------------------------------------------------------------
 !---- model defined-types ----
@@ -149,6 +151,10 @@ character(len=128) :: tag = '$Name: tikal_201409 $'
        call sfc_boundary_layer (real(dt_atmos), Time_atmos, Atm, Land, Ice, &
                                 Land_ice_atmos_boundary                     )
 
+       call update_atmos_model_dynamics( Atm )
+
+       call update_atmos_model_radiation( Land_ice_atmos_boundary, Atm )
+
        call update_atmos_model_down( Land_ice_atmos_boundary, Atm )
 
        call flux_down_from_atmos( Time_atmos, Atm, Land, Ice, &
@@ -166,6 +172,8 @@ character(len=128) :: tag = '$Name: tikal_201409 $'
        call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary )
 
        call update_atmos_model_up( Land_ice_atmos_boundary, Atm )
+
+       call update_atmos_model_state( Atm )
 
  enddo
 
@@ -238,6 +246,10 @@ contains
 
    call write_version_number (version, tag)
    if (mpp_pe() == mpp_root_pe()) write(stdlog(),nml=coupler_nml)
+
+!----- allocate and set the pelist (to the global pelist) -----
+    allocate( Atm%pelist  (mpp_npes()) )
+    call mpp_get_current_pelist(Atm%pelist)
 
 !----- read restart file -----
 
@@ -388,13 +400,11 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
          call error_mesg ('program coupler',   &
          'atmos time step is not a multiple of the ocean time step', FATAL)
 
-! ---- create the base pelist
-    allocate(Atm%pelist(mpp_npes()))
-    call mpp_get_current_pelist(Atm%pelist)
 
 !------ initialize component models ------
 
-      call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos)
+      call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos, &
+             .false.) ! do_concurrent_radiation
 
       call mpp_get_global_domain(Atm%Domain, xsize=gnlon, ysize=gnlat)
       allocate ( glon_bnd(gnlon+1,gnlat+1), glat_bnd(gnlon+1,gnlat+1) )
