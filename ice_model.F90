@@ -135,7 +135,7 @@ logical :: module_is_initialized = .false.
 character(len=64) :: fname = 'INPUT/ice_model.res.nc'
 
 character(len=128) :: version = '$Id: ice_model.F90,v 19.0 2012/01/06 22:06:50 fms Exp $'
-character(len=128) :: tagname = '$Name: ulm $'
+character(len=128) :: tagname = '$Name: ulm_201505 $'
 
 real, parameter :: LATENT = HLV + HLF
 
