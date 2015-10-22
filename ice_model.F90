@@ -134,8 +134,8 @@ type(amip_interp_type), save :: Amip_ice, Amip_sst
 logical :: module_is_initialized = .false.
 character(len=64) :: fname = 'INPUT/ice_model.res.nc'
 
-character(len=128) :: version = '$Id: ice_model.F90,v 19.0 2012/01/06 22:06:50 fms Exp $'
-character(len=128) :: tagname = '$Name: testing $'
+character(len=128) :: version = '$Id$'
+character(len=128) :: tagname = '$Name$'
 
 real, parameter :: LATENT = HLV + HLF
 

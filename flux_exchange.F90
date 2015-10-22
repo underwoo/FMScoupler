@@ -40,8 +40,8 @@ public :: flux_exchange_init,   &
           flux_exchange_end
 
 !-----------------------------------------------------------------------
-character(len=128) :: version = '$Id: flux_exchange.F90,v 19.0.4.1 2014/11/20 20:32:41 Peter.Phillipps Exp $'
-character(len=128) :: tag = '$Name: testing $'
+character(len=128) :: version = '$Id$'
+character(len=128) :: tag = '$Name$'
 
 !-----------------------------------------------------------------------
 !-------- namelist (for diagnostics) ------
