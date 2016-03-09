@@ -450,14 +450,6 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
    integer :: unit, date(6)
 !-----------------------------------------------------------------------
 
-      call atmos_model_end (Atm)
-      call  land_model_end (Atmos_land_boundary, Land)
-      call   ice_model_end (Ice)
-
-      call  fms_io_exit
-
-! call flux_exchange_end (Atm)
-
 !----- compute current date ------
 
       call get_date (Time_atmos, date(1), date(2), date(3),  &
@@ -480,12 +472,20 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
         write( unit, '(6i6,8x,a)' )date, &
              'Current model time: year, month, day, hour, minute, second'
     endif
-    call mpp_close(unit)
 
 
-!----- final output of diagnostic fields ----
+!----- finalize model components, and output of diagnostic fields ----
+      call atmos_model_end (Atm)
+      call  land_model_end (Atmos_land_boundary, Land)
+      call   ice_model_end (Ice)
 
-   call diag_manager_end (Time_atmos)
+      call diag_manager_end (Time_atmos)
+
+      call  fms_io_exit
+      call mpp_close(unit)
+
+! call flux_exchange_end (Atm)
+
 
 !-----------------------------------------------------------------------
 
