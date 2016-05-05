@@ -7,7 +7,7 @@ use   atmos_model_mod, only: atmos_data_type, land_ice_atmos_boundary_type
 use    land_model_mod, only:  land_data_type, atmos_land_boundary_type
 use     ice_model_mod, only:   ice_data_type, atmos_ice_boundary_type
 
-use  surface_flux_mod, only: surface_flux
+use  surface_flux_mod, only: surface_flux, surface_flux_init
 use monin_obukhov_mod, only: mo_profile
 
 use diag_integral_mod, only: diag_integral_field_init, &
@@ -755,7 +755,7 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    land_ice_atmos_boundary%rough_mom=0.01
    land_ice_atmos_boundary%frac_open_sea=0.0
    
-
+   call surface_flux_init()
 !-----------------------------------------------------------------------
 
    do_init = .false.
