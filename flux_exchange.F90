@@ -731,12 +731,18 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    allocate( land_ice_atmos_boundary%u_star(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%b_star(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%q_star(is:ie,js:je) )
+#ifndef use_AM3_physics
+        allocate( land_ice_atmos_boundary%shflx(is:ie,js:je) )!miz
+        allocate( land_ice_atmos_boundary%lhflx(is:ie,js:je) )!miz
+#endif
    allocate( land_ice_atmos_boundary%rough_mom(is:ie,js:je) )
    allocate( land_ice_atmos_boundary%frac_open_sea(is:ie,js:je) )
 
 !------ initialize boundary values ------
 
    land_ice_atmos_boundary%t=273.0
+   land_ice_atmos_boundary%t_ref=273.0   ! cjg: PBL depth mods
+   land_ice_atmos_boundary%q_ref=0.0     ! cjg: PBL depth mods
    land_ice_atmos_boundary%albedo=0.0
    land_ice_atmos_boundary%albedo_vis_dir=0.0
    land_ice_atmos_boundary%albedo_nir_dir=0.0
@@ -752,6 +758,10 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    land_ice_atmos_boundary%u_star=0.0
    land_ice_atmos_boundary%b_star=0.0
    land_ice_atmos_boundary%q_star=0.0
+#ifndef use_AM3_physics
+   land_ice_atmos_boundary%shflx=0.0
+   land_ice_atmos_boundary%lhflx=0.0
+#endif
    land_ice_atmos_boundary%rough_mom=0.01
    land_ice_atmos_boundary%frac_open_sea=0.0
    
