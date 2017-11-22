@@ -41,11 +41,15 @@ use constants_mod, only:    constants_init
 use       fms_mod, only: open_namelist_file, file_exist, check_nml_error,  &
                          error_mesg, fms_init, fms_end, close_file,        &
                          write_version_number, uppercase
+use       fms_mod, only: stdout
+
 use    fms_io_mod, only: fms_io_exit
 
 use mpp_mod, only: mpp_init, mpp_pe, mpp_root_pe, mpp_npes, mpp_get_current_pelist, &
                    stdlog, mpp_error, NOTE, FATAL, WARNING
 use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
+
+use mpp_mod, only: mpp_chksum, mpp_set_current_pelist
 
 use mpp_io_mod, only: mpp_open, mpp_close, &
                       MPP_NATIVE, MPP_RDONLY, MPP_DELETE
@@ -62,6 +66,11 @@ use  diag_manager_mod, only: diag_manager_init, diag_manager_end, &
                              get_base_date, diag_manager_set_time_end
 
 use data_override_mod, only: data_override_init
+
+  use tracer_manager_mod,      only: tracer_manager_init, get_tracer_index
+  use tracer_manager_mod,      only: get_number_tracers, get_tracer_names, NO_TRACER
+
+  use field_manager_mod,       only: MODEL_ATMOS, MODEL_LAND, MODEL_ICE
 
 
 implicit none
@@ -116,9 +125,12 @@ character(len=128) :: tag = '$Name$'
       integer :: dt_atmos = 0
       integer :: dt_ocean = 0
 
+      logical :: do_chksum = .FALSE.  !! If .TRUE., do multiple checksums throughout the execution of the model.
+
       namelist /coupler_nml/ current_date, calendar, force_date_from_namelist, &
                              months, days, hours, minutes, seconds,  &
-                             dt_atmos, dt_ocean
+                             dt_atmos, dt_ocean, &
+                             do_chksum
 
 !#######################################################################
 
@@ -133,6 +145,7 @@ character(len=128) :: tag = '$Name$'
  call constants_init
 
  call coupler_init
+  if (do_chksum) call coupler_chksum('coupler_init+', 0)
 
  call mpp_clock_end (initClock) !end initialization
  call mpp_clock_begin(mainClock) !begin main loop
@@ -141,44 +154,57 @@ character(len=128) :: tag = '$Name$'
 !------ ocean/slow-ice integration loop ------
 
  do nc = 1, num_cpld_calls
+    if (do_chksum) call coupler_chksum('top_of_coupled_loop+', nc)
 
 !------ atmos/fast-land/fast-ice integration loop -------
 
  do na = 1, num_atmos_calls
+    if (do_chksum) call coupler_chksum('top_of_atm_loop+', na)
 
        Time_atmos = Time_atmos + Time_step_atmos
 
        call sfc_boundary_layer (real(dt_atmos), Time_atmos, Atm, Land, Ice, &
                                 Land_ice_atmos_boundary                     )
+    if (do_chksum) call coupler_chksum('sfc+', na)
 
        call update_atmos_model_dynamics( Atm )
+    if (do_chksum) call coupler_chksum('model_dynamics+', na)
 
        call update_atmos_model_radiation( Land_ice_atmos_boundary, Atm )
+    if (do_chksum) call coupler_chksum('update_radiation+', na)
 
        call update_atmos_model_down( Land_ice_atmos_boundary, Atm )
+    if (do_chksum) call coupler_chksum('atmos_model_down+', nc)
 
        call flux_down_from_atmos( Time_atmos, Atm, Land, Ice, &
                                   Land_ice_atmos_boundary,    &
                                   Atmos_land_boundary,        &
                                   Atmos_ice_boundary          )
+    if (do_chksum) call coupler_chksum('flux_down+', nc)
 
      !--- land and ice models ---
 
       call update_land_model_fast ( Atmos_land_boundary, Land )
+    if (do_chksum) call coupler_chksum('update_land+', na)
       call update_ice_model_fast  ( Atmos_ice_boundary,  Ice  )
+    if (do_chksum) call coupler_chksum('update_ice+', na)
 
      !--- atmosphere up ---
 
        call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary )
+    if (do_chksum) call coupler_chksum('flux_up+', na)
 
        call update_atmos_model_up( Land_ice_atmos_boundary, Atm )
+    if (do_chksum) call coupler_chksum('update_atmos_model_up+', na)
 
        call update_atmos_model_state( Atm )
+    if (do_chksum) call coupler_chksum('update_model_state+', na)
 
  enddo
 
     !--- call land slow for diagnostics ---
       call update_land_model_slow ( Atmos_land_boundary, Land )
+    if (do_chksum) call coupler_chksum('land_slow_diag+', nc)
 
     ! need flux call to put runoff and p_surf on ice grid
 
@@ -187,6 +213,7 @@ character(len=128) :: tag = '$Name$'
     !----- slow-ice/ocean model ------
 
        call update_ice_model_slow ( Atmos_ice_boundary, Ice )
+    if (do_chksum) call coupler_chksum('ice_model_slow+', nc)
 
   enddo
 
@@ -490,6 +517,74 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
 !-----------------------------------------------------------------------
 
    end subroutine coupler_end
+
+!> \brief Print out checksums for several atm, land and ice variables
+  subroutine coupler_chksum(id, timestep)
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+
+    type :: tracer_ind_type
+       integer :: atm, ice, lnd ! indices of the tracer in the respective models
+    end type tracer_ind_type
+    integer                            :: n_atm_tr, n_lnd_tr, n_exch_tr
+    integer                            :: n_atm_tr_tot, n_lnd_tr_tot
+    integer                            :: i, tr, n, m, outunit
+    type(tracer_ind_type), allocatable :: tr_table(:)
+    character(32) :: tr_name
+
+    call get_number_tracers (MODEL_ATMOS, num_tracers=n_atm_tr_tot, &
+                             num_prog=n_atm_tr)
+    call get_number_tracers (MODEL_LAND, num_tracers=n_lnd_tr_tot, &
+                             num_prog=n_lnd_tr)
+
+    ! Assemble the table of tracer number translation by matching names of
+    ! prognostic tracers in the atmosphere and surface models; skip all atmos.
+    ! tracers that have no corresponding surface tracers.
+    allocate(tr_table(n_atm_tr))
+    n = 1
+    do i = 1,n_atm_tr
+       call get_tracer_names( MODEL_ATMOS, i, tr_name )
+       tr_table(n)%atm = i
+       tr_table(n)%ice = get_tracer_index ( MODEL_ICE,  tr_name )
+       tr_table(n)%lnd = get_tracer_index ( MODEL_LAND, tr_name )
+      if (tr_table(n)%ice/=NO_TRACER .or. tr_table(n)%lnd/=NO_TRACER) n = n+1
+    enddo
+    n_exch_tr = n-1
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+101 FORMAT("CHECKSUM::",A16,a,'%',a," = ",Z20)
+
+
+       outunit = stdout()
+       write(outunit,*) 'BEGIN CHECKSUM(Atm):: ', id, timestep
+       write(outunit,100) 'atm%t_bot', mpp_chksum(atm%t_bot)
+       write(outunit,100) 'atm%z_bot', mpp_chksum(atm%z_bot)
+       write(outunit,100) 'atm%p_bot', mpp_chksum(atm%p_bot)
+       write(outunit,100) 'atm%u_bot', mpp_chksum(atm%u_bot)
+       write(outunit,100) 'atm%v_bot', mpp_chksum(atm%v_bot)
+       write(outunit,100) 'atm%p_surf', mpp_chksum(atm%p_surf)
+       write(outunit,100) 'atm%gust', mpp_chksum(atm%gust)
+       do tr = 1,n_exch_tr
+          n = tr_table(tr)%atm
+         if (n /= NO_TRACER) then
+             call get_tracer_names( MODEL_ATMOS, tr_table(tr)%atm, tr_name )
+             write(outunit,100) 'atm%'//trim(tr_name), mpp_chksum(Atm%tr_bot(:,:,n))
+          endif
+       enddo
+
+       write(outunit,100) 'ice%t_surf', mpp_chksum(ice%t_surf)
+       write(outunit,100) 'ice%rough_mom', mpp_chksum(ice%rough_mom)
+       write(outunit,100) 'ice%rough_heat', mpp_chksum(ice%rough_heat)
+       write(outunit,100) 'ice%rough_moist', mpp_chksum(ice%rough_moist)
+       write(outunit,*) 'STOP CHECKSUM(Atm):: ', id, timestep
+
+    deallocate(tr_table)
+
+
+  end subroutine coupler_chksum
+
+
 
 !#######################################################################
 
