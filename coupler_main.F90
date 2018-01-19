@@ -440,7 +440,11 @@ num_atmos_calls = Time_step_ocean / Time_step_atmos
 
       call   land_model_init (Atmos_land_boundary, Land, &
                               Time_init, Time_atmos, Time_step_atmos, Time_step_ocean, &
+#ifdef LAND_LAD
                               glon_bnd, glat_bnd, atmos_domain=Atm%Domain)
+#else
+                              glon_bnd, glat_bnd, domain_in=Atm%Domain)
+#endif
       call    ice_model_init (Ice,  Time_init, Time_atmos, Time_step_atmos, Time_step_ocean, &
                               glon_bnd, glat_bnd, atmos_domain=Atm%Domain)
 
