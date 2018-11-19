@@ -13,10 +13,14 @@ use monin_obukhov_mod, only: mo_profile
 use diag_integral_mod, only: diag_integral_field_init, &
                              sum_diag_integral_field
 use  diag_manager_mod, only: register_diag_field,  &
-                             register_static_field, send_data
+                             register_static_field, send_data,  &
+                             diag_field_add_attribute,  &
+                             get_diag_field_id, DIAG_FIELD_NOT_FOUND
 use  time_manager_mod, only: time_type
 
-use sat_vapor_pres_mod, only: escomp
+use sat_vapor_pres_mod, only: escomp, compute_qs, sat_vapor_pres_init
+use atmos_cmip_diag_mod,   only: register_cmip_diag_field_2d
+use diag_data_mod,      only: CMOR_MISSING_VALUE 
 use      constants_mod, only: RDGAS, RVGAS, CP_AIR, HLV, HLF, PI
 use            fms_mod, only: file_exist, open_namelist_file, &
                               check_nml_error, close_file,    &
@@ -25,7 +29,7 @@ use            fms_mod, only: file_exist, open_namelist_file, &
                               mpp_pe, mpp_root_pe, WARNING
 use    mpp_domains_mod, only: mpp_get_compute_domain
 
-use mpp_mod, only: mpp_min, mpp_max, mpp_sync
+use mpp_mod, only: mpp_min, mpp_max, mpp_sync, NOTE
 
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_index, NO_TRACER
@@ -59,6 +63,21 @@ integer :: id_drag_moist,  id_drag_heat,  id_drag_mom,              &
            id_land_mask, id_ice_mask, id_rough_scale,               &
            id_albedo_vis_dir, id_albedo_nir_dir,                    &
            id_albedo_vis_dif, id_albedo_nir_dif
+
+! t_ref(tas), u_ref, v_ref, t_surf, id_wind(check)
+! v_flux (wind stress? check)
+! q_ref (huss), t_flux (hfss) 
+
+! Atm%slp can be saved as psl
+
+! probably don't need id_tos, id_tslsi but check data request
+
+  ! lgs id's for cmip specific fields for aquaplanet
+  integer :: id_tas, id_uas, id_vas, id_ts, id_psl, &
+             id_sfcWind, id_tauu, id_tauv, &
+             id_hurs, id_huss, id_evspsbl, id_hfls, id_hfss, &
+             !id_sftlf, id_tos, id_tslsi, id_sic, &
+             id_height2m, id_height10m
 
 logical :: first_static = .true.
 logical :: do_init = .true.
@@ -118,19 +137,20 @@ contains
 
  subroutine sfc_boundary_layer ( dt, Time, Atm, Land, Ice, Boundary )
 
- real,                   intent(in)  :: dt
- type       (time_type), intent(in)  :: Time
- type (atmos_data_type), intent(in)  :: Atm
- type(land_data_type),  intent(inout)  :: Land
- type(ice_data_type),   intent(inout)  :: Ice
- type(land_ice_atmos_boundary_type), intent(inout) :: Boundary
+ real,                   intent(in)  :: dt  !< Time step 
+ type       (time_type), intent(in)  :: Time !< Current time
+ type (atmos_data_type), intent(in)  :: Atm  !< A derived data type to specify atmospheric boundary data
+ type(land_data_type),  intent(inout)  :: Land !< A derived data type to specify land boundary data
+ type(ice_data_type),   intent(inout)  :: Ice !< A derived data type to specify ice boundary data
+ type(land_ice_atmos_boundary_type), intent(inout) :: Boundary !< A derived data type to specify properties and
+ !! fluxes passed from exchange grid to the atmosphere,
        
 real, dimension(is:ie,js:je) :: u_surf, v_surf, rough_heat, rough_moist, &
                                 rough_mom, rough_scale, q_star, cd_q,    &
                                 albedo, albedo_vis_dir, albedo_nir_dir,  &
                                 albedo_vis_dif, albedo_nir_dif,          &
                                 del_m, del_h, del_q, land_frac,          &
-                                ref, t_ref, qs_ref
+                                ref, ref2, t_ref, qs_ref, qs_ref_cmip
        
 logical, dimension(is:ie,js:je) :: mask, seawater, avail
 real :: zrefm, zrefh
@@ -265,6 +285,10 @@ real :: zrefm, zrefh
 
  if (first_static) then
    if ( id_land_mask   > 0 ) used = send_data ( id_land_mask,   Boundary%land_frac, Time )
+   ! near-surface heights
+   if ( id_height2m  > 0) used = send_data ( id_height2m, z_ref_heat, Time )
+   if ( id_height10m > 0) used = send_data ( id_height10m, z_ref_mom, Time )
+
    first_static = .false.
  endif
    if ( id_wind        > 0 ) used = send_data ( id_wind,        wind,         Time )
@@ -319,16 +343,23 @@ real :: zrefm, zrefh
                           del_m, del_h, del_q                 )
 
      !---- reference relative humidity ----
-      if ( id_rh_ref > 0 .or.  id_q_ref > 0 ) then
+      if ( id_rh_ref > 0 .or.  id_q_ref > 0 .or. id_hurs > 0 .or. id_huss > 0) then
          ref   = q_surf + (Atm%tr_bot(:,:,isphum)-q_surf) * del_q
          if (id_q_ref > 0) used = send_data ( id_q_ref, ref, Time )
+         if (id_huss  > 0) used = send_data (id_huss,ref,Time)
 
          t_ref = t_ca + (Atm%t_bot-t_ca) * del_h
-         call escomp (t_ref, qs_ref)
+         !call escomp (t_ref, qs_ref)
+         call compute_qs (t_ref, p_surf, qs_ref, q = ref)
+         call compute_qs (t_ref, p_surf, qs_ref_cmip,  &
+            q = ref, es_over_liq_and_ice = .true.)
          qs_ref = d622*qs_ref/(p_surf-d378*qs_ref)
-         ref    = MIN(100.,100.*ref/qs_ref)
+
+         ref    = 100.*ref/qs_ref
+         ref2   = 100.*ref/qs_ref_cmip
 
          if (id_rh_ref > 0) used = send_data ( id_rh_ref, ref, Time )
+         if (id_hurs   > 0) used = send_data ( id_hurs, ref2, Time )
       endif
 
      !---- reference temperature ----
@@ -338,16 +369,26 @@ real :: zrefm, zrefh
       endif
 
      !---- reference u comp ----
-      if ( id_u_ref > 0 ) then
+      if ( id_u_ref > 0 .or. id_uas > 0) then
          ref = u_surf + (Atm%u_bot-u_surf) * del_m
          used = send_data ( id_u_ref, ref, Time )
       endif
+      if ( id_uas > 0 ) used = send_data ( id_uas, ref, Time )
 
      !---- reference v comp ----
-      if ( id_v_ref > 0 ) then
+      if ( id_v_ref > 0 .or. id_vas > 0) then
          ref = v_surf + (Atm%v_bot-v_surf) * del_m
          used = send_data ( id_v_ref, ref, Time )
       endif
+      if ( id_vas > 0 ) used = send_data ( id_vas, ref, Time )
+
+      !    ------- reference-level absolute wind -----------
+      if ( id_sfcWind > 0 ) then
+              ref = sqrt((u_surf + (Atm%u_bot-u_surf) * del_m)**2 &
+              +(v_surf + (Atm%v_bot-v_surf) * del_m)**2)
+         if ( id_sfcWind  > 0 ) used = send_data ( id_sfcWind, ref , Time )
+      endif
+
 
      !---- interp factors ----
       if ( id_del_h > 0 )  used = send_data ( id_del_h, del_h, Time )
@@ -361,6 +402,11 @@ real :: zrefm, zrefh
      ref = (log(Atm%z_bot/rough_mom+1)/log(Atm%z_bot/rough_scale+1))**2
      used = send_data(id_rough_scale, ref, Time)
   endif
+
+! lgs line below is from atm_land_ice_flux_exchange.F90  what should diag_atm be?
+!   if ( id_tas         > 0 ) used = send_data ( id_tas, diag_atm, Time )
+   if ( id_tas > 0 ) used = send_data ( id_tas, t_ref, Time )
+   if ( id_psl > 0 ) used = send_data ( id_psl, Atm%slp , Time )
 
 
 !=======================================================================
@@ -496,7 +542,9 @@ real, dimension(is:ie,js:je) :: gamma, dtmass, delta_t, delta_q, &
 !-------------------- diagnostics section ------------------------------
 
 if ( id_u_flux > 0 ) used = send_data ( id_u_flux, Atmos_boundary%u_flux, Time )
+if ( id_tauu > 0 )   used = send_data ( id_tauu,  -Atmos_boundary%u_flux, Time )
 if ( id_v_flux > 0 ) used = send_data ( id_v_flux, Atmos_boundary%v_flux, Time )
+if ( id_tauv > 0 )   used = send_data ( id_tauv,  -Atmos_boundary%v_flux, Time )
 
 !-----------------------------------------------------------------------
 
@@ -568,6 +616,10 @@ subroutine flux_up_to_atmos (Time, Land, Ice, Boundary )
    if ( id_t_flux > 0 ) used = send_data ( id_t_flux, flux_t,     Time )
    if ( id_r_flux > 0 ) used = send_data ( id_r_flux, flux_lw,    Time )
    if ( id_q_flux > 0 ) used = send_data ( id_q_flux, flux_q,     Time )
+   if ( id_evspsbl> 0 ) used = send_data ( id_evspsbl, flux_q,    Time )
+   if ( id_hfls   > 0 ) used = send_data ( id_hfls,   HLV*flux_q, Time )
+   if ( id_hfss   > 0 ) used = send_data ( id_hfss,   flux_t,     Time )
+   if ( id_ts     > 0 ) used = send_data ( id_ts,     t_surf_new, Time )
 
    call sum_diag_integral_field ('evap', flux_q*86400.)
 
@@ -805,6 +857,7 @@ subroutine diag_field_init ( Time, atmos_axes )
   real, dimension(2) :: trange = (/  100., 400. /), &
                         vrange = (/ -400., 400. /), &
                         frange = (/ -0.01, 1.01 /)
+  integer            :: area_id
 !-----------------------------------------------------------------------
 !  initializes diagnostic fields that may be output from this module
 !  (the id numbers may be referenced anywhere in this module)
@@ -999,6 +1052,85 @@ subroutine diag_field_init ( Time, atmos_axes )
    id_albedo_nir_dif = &
    register_diag_field ( mod_name, 'albedo_nir_dif', atmos_axes, Time,     &
                         'NIR diffuse surface albedo','none' )
+
+    !--------------------------------------------------------------------
+    !    retrieve the diag_manager id for the area diagnostic,
+    !    needed for cmorizing various diagnostics.
+    !--------------------------------------------------------------------
+    area_id = get_diag_field_id ('dynamics', 'area')
+    if (area_id .eq. DIAG_FIELD_NOT_FOUND) call error_mesg &
+         ('diag_field_init in atm_land_ice_flux_exchange_mod', &
+         'diagnostic field "dynamics", "area" is not in the diag_table', NOTE)
+    !-----------------------------------------------------------------------
+    !  register cmip variable names
+    !-----------------------------------------------------------------------
+    id_tas = register_cmip_diag_field_2d ( mod_name, 'tas', Time, &
+                            'Near-Surface Air Temperature', 'K' , &
+                             standard_name='air_temperature' )
+    if ( id_tas > 0 .and. id_height2m > 0) &
+       call diag_field_add_attribute( id_tas, 'coordinates', 'height2m' )
+! in diag table include height2m wherever tas is included
+
+    id_evspsbl = register_cmip_diag_field_2d ( mod_name, 'evspsbl', Time, &
+                                             'Evaporation', 'kg m-2 s-1', &
+                                   standard_name='water_evaporation_flux' )
+
+    id_uas = register_cmip_diag_field_2d ( mod_name, 'uas', Time, &
+                           'Eastward Near-Surface Wind', 'm s-1', &
+                            standard_name='eastward_wind' )
+    if ( id_uas > 0 .and. id_height10m > 0) &
+       call diag_field_add_attribute( id_uas, 'coordinates', 'height10m' )
+
+    id_vas = register_cmip_diag_field_2d ( mod_name, 'vas', Time, &
+                          'Northward Near-Surface Wind', 'm s-1', &
+                           standard_name='northward_wind' )
+    if ( id_vas > 0 .and. id_height10m > 0 ) &
+       call diag_field_add_attribute( id_vas, 'coordinates', 'height10m' )
+
+    id_sfcWind = register_cmip_diag_field_2d ( mod_name, 'sfcWind', Time, &
+                                      'Near-Surface Wind Speed', 'm s-1', &
+                                       standard_name='wind_speed' )
+    if ( id_sfcWind > 0 .and. id_height10m > 0 ) &
+       call diag_field_add_attribute( id_sfcWind, 'coordinates', 'height10m' )
+
+    id_huss = register_cmip_diag_field_2d ( mod_name, 'huss', Time, &
+                           'Near-Surface Specific Humidity', '1.0', &
+                            standard_name='specific_humidity' )
+    if ( id_huss > 0 .and. id_height2m > 0 ) &
+       call diag_field_add_attribute( id_huss, 'coordinates', 'height2m' )
+
+    id_hurs = register_cmip_diag_field_2d ( mod_name, 'hurs', Time, &
+                             'Near-Surface Relative Humidity', '%', &
+                              standard_name='relative_humidity' )
+    if ( id_hurs > 0 .and. id_height2m > 0 ) &
+       call diag_field_add_attribute( id_hurs, 'coordinates', 'height2m' )
+
+    id_ts = register_cmip_diag_field_2d ( mod_name, 'ts', Time, &
+                                    'Surface Temperature', 'K', &
+                            standard_name='surface_temperature' )
+
+    id_psl = register_cmip_diag_field_2d ( mod_name, 'psl', Time, &
+                                      'Sea Level Pressure', 'Pa', &
+                        standard_name='air_pressure_at_sea_level' )
+
+    id_tauu = register_cmip_diag_field_2d ( mod_name, 'tauu', Time, &
+                     'Surface Downward Eastward Wind Stress', 'Pa', &
+                   standard_name='surface_downward_eastward_stress' )
+
+    id_tauv = register_cmip_diag_field_2d ( mod_name, 'tauv', Time, &
+                    'Surface Downward Northward Wind Stress', 'Pa', &
+                  standard_name='surface_downward_northward_stress' )
+
+    id_hfls = register_cmip_diag_field_2d ( mod_name, 'hfls', Time, &
+                        'Surface Upward Latent Heat Flux', 'W m-2', &
+                    standard_name='surface_upward_latent_heat_flux' )
+    if ( id_hfls > 0 ) &
+       call diag_field_add_attribute( id_hfls, 'comment', 'Lv*evap' )
+
+    id_hfss = register_cmip_diag_field_2d ( mod_name, 'hfss', Time, &
+                      'Surface Upward Sensible Heat Flux', 'W m-2', &
+                  standard_name='surface_upward_sensible_heat_flux' )
+
 
 !-----------------------------------------------------------------------
 

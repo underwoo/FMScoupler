@@ -63,8 +63,11 @@ character(len=64) :: sst_method = 'specified'  ! specified, uniform, or mixed_la
                                                !   aqua_planet_6 = 1KEQ
                                                !   aqua_planet_7 = 3KEQ
                                                !   aqua_planet_8 = 3KW1
+                                               !   aqua_planet_10N = Control shifted by 10N
+                                               !   aqua_planet_15N = Control shifted by 15N
 real              :: temp_ice = 270.      ! used when ice_method = 'uniform'
 real              :: temp_sst = 280.      ! used when sst_method = 'uniform'
+real              :: sst_anom = 0.        ! sst perturbation used for sensitivity experiments
 character(len=64) :: interp_method  = "bilinear" ! conservative or bilinear
 logical :: do_netcdf_restart = .true.
 
@@ -72,7 +75,7 @@ namelist /ice_model_nml/ diff, thickness_min, specified_ice_thickness,        &
                          heat_capacity_ocean, temp_ice_freeze, roughness_ice, &
                          ice_method, use_climo_ice, use_annual_ice, temp_ice, &
                          sst_method, use_climo_sst, use_annual_sst, temp_sst, &
-                         interp_method, do_netcdf_restart
+                         interp_method, do_netcdf_restart, sst_anom
 
 !----------------------------------------------------------------
 
@@ -387,7 +390,7 @@ endif
  real               , intent(in)    :: glon_bnd(:,:), glat_bnd(:,:)
  type(domain2d), intent(in), target :: Atmos_domain
 
-real :: lon0, lond, latd, amp, t_control, dellon
+real :: lon0, lond, latd, amp, t_control, dellon, dom_wid, siggy, tempi
  integer :: isg, ieg, jsg, jeg
  integer :: unit, ierr, io, i, j
  integer :: ndim, nvar, natt, ntime, nlon, nlat, mlon, mlat, layout(2)
@@ -433,6 +436,14 @@ real :: lon0, lond, latd, amp, t_control, dellon
        trim(sst_method) /= 'aqua_planet_6'  .and. &
        trim(sst_method) /= 'aqua_planet_7'  .and. &
        trim(sst_method) /= 'aqua_planet_8'  .and. &
+       trim(sst_method) /= 'aqua_planet_10N'      .and. &
+       trim(sst_method) /= 'aqua_planet_15N'      .and. &
+       trim(sst_method) /= 'aqua_walker'          .and. &
+       trim(sst_method) /= 'aqua_walker_cos'      .and. &
+       trim(sst_method) /= 'aqua_walker_guass'    .and. &
+       trim(sst_method) /= 'aqua_walker_guass_b'  .and. &
+       trim(sst_method) /= 'aqua_walker_guass_c'  .and. &
+       trim(sst_method) /= 'aqua_walker_guass_d'  .and. &
        trim(sst_method) /= 'mixed_layer' ) call error_mesg &
      ('ice_model_init', 'namelist variable sst_method has invalid value', FATAL)
 
@@ -689,6 +700,122 @@ endif
             endif
         enddo
         enddo
+    else if (sst_method == "aqua_walker") then
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lon0 = 0.
+        !lond = 30.*pi/180.
+        lond = pi/36. ! multiply original lond by 1/6
+        latd = 15.*pi/180.
+        amp = 8.
+        do j = js, je
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               !Ice%t_surf(i,j) = 27. + TFREEZE + amp * cos(0.5*pi*min(max(dellon/lond,-1.),1.))**2 
+               Ice%t_surf(i,j) = 297. + amp * cos(0.5*pi*min(max(dellon/lond,-1.),1.))**2 
+            endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_walker_guass") then ! see Wofsy and Kuang
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lon0 = 0.
+        siggy = (pi/8.)*(1./6.) ! sigma in the guassian distribution
+        !amp = 1./(siggy*SQRT(2*pi))
+        amp = 8.
+        do j = js, je
+             tempi=real(j)
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               Ice%t_surf(i,j) = 297. + amp*EXP(-0.5*((dellon)**2.)/(siggy)**2) 
+            endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_walker_guass_b") then ! see Wofsy and Kuang
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lon0 = 0.
+        siggy = (pi/12.)*(1./6.) ! sigma in the guassian distribution
+        !amp = 1./(siggy*SQRT(2*pi))
+        amp = 8.
+        do j = js, je
+             tempi=real(j)
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               Ice%t_surf(i,j) = 297. + amp*EXP(-0.5*((dellon)**2.)/(siggy)**2) 
+            endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_walker_guass_c") then ! see Wofsy and Kuang
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lon0 = 0.
+        siggy = (pi/16.)*(1./6.) ! sigma in the guassian distribution
+        !amp = 1./(siggy*SQRT(2*pi))
+        amp = 8.
+        do j = js, je
+             tempi=real(j)
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               Ice%t_surf(i,j) = 297. + amp*EXP(-0.5*((dellon)**2.)/(siggy)**2) 
+            endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_walker_guass_d") then ! see Wofsy and Kuang
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lon0 = 0.
+        siggy = (pi/20.)*(1./6.) ! sigma in the guassian distribution
+        !amp = 1./(siggy*SQRT(2*pi))
+        amp = 4.
+        do j = js, je
+             tempi=real(j)
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               Ice%t_surf(i,j) = 297. + amp*EXP(-0.5*((dellon)**2.)/(siggy)**2) 
+            endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_walker_cos") then ! see Wofsy and Kuang
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        ! constants
+        lond = pi/36. ! multiply original lond by 1/6
+        lon0 = 0.
+        amp = 8.
+        dom_wid=Ice%lon(is,js)-Ice%lon(is,je)
+        !dom_wid=real(ie)-real(is)
+        do j = js, je
+             tempi=real(j)
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+               dellon = Ice%lon(i,j)-lon0
+               if (dellon >  pi) dellon = dellon - 2.*pi
+               if (dellon < -pi) dellon = dellon + 2.*pi
+               Ice%t_surf(i,j) = 297. - amp * cos(0.5*pi*min(max(dellon/lond,-1.),1.)) 
+            endif
+        enddo
+        enddo
     else if (sst_method == "aqua_planet_8") then
         ice_method = 'none'
         Ice%ice_mask = .false.
@@ -700,6 +827,34 @@ endif
             Ice%t_surf = 27.*(1.-sin(max(min(1.5*Ice%lat,pi*0.5),-pi*0.5))**2) + TFREEZE + &
                          amp * cos(Ice%lon-lon0) * cos(0.5*pi*min(max(Ice%lat/latd,-1.),1.))**2
         endwhere
+    else if (sst_method == "aqua_planet_10N") then
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        do j = js, je
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+              if (Ice%lat(i,j) > pi/18.) then
+                  Ice%t_surf(i,j) = 27.*(1.-sin(min(90./55.*(Ice%lat(i,j)-pi/18.),pi*0.5))**2) + TFREEZE
+              else
+                  Ice%t_surf(i,j) = 27.*(1.-sin(max(90./65.*(Ice%lat(i,j)-pi/18.),-pi*0.5))**2) + TFREEZE
+              endif
+    endif
+        enddo
+        enddo
+    else if (sst_method == "aqua_planet_15N") then
+        ice_method = 'none'
+        Ice%ice_mask = .false.
+        do j = js, je
+        do i = is, ie
+           if (Ice%mask(i,j)) then
+              if (Ice%lat(i,j) > pi/12.) then
+                  Ice%t_surf(i,j) = 27.*(1.-sin(min(90./55.*(Ice%lat(i,j)-pi/12.),pi*0.5))**2) + TFREEZE
+              else
+                  Ice%t_surf(i,j) = 27.*(1.-sin(max(90./65.*(Ice%lat(i,j)-pi/12.),-pi*0.5))**2) + TFREEZE
+              endif
+           endif
+        enddo
+        enddo
     endif
 
 
@@ -747,6 +902,14 @@ endif
   endif
 
 print *, 'pe,count(ice,all,ocean)=',mpp_pe(),count(Ice%ice_mask),count(Ice%mask),count(Ice%mask .and. .not.Ice%ice_mask)
+
+! add on non-zero sea surface temperature perturbation (namelist option)
+! this perturbation may be useful in accessing model sensitivities
+
+  if ( abs(sst_anom) > 0.0001 ) then
+    Ice%t_surf(:,:) = Ice%t_surf(:,:) + sst_anom
+  endif
+
 !----------------------------------------------------------
 
   module_is_initialized = .true.
